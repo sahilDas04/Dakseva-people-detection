@@ -12,12 +12,12 @@ import six.moves.urllib as urllib
 import label_map_util
 import visualization_utils as vis_util
 
-# Disable eager execution for TensorFlow 1.x compatibility
+
 tf.compat.v1.disable_eager_execution()
 
 app = Flask(__name__)
 
-# Model configuration
+
 MODEL_NAME = 'ssd_mobilenet_v1_coco_2018_01_28'
 MODEL_FILE = MODEL_NAME + '.tar.gz'
 DOWNLOAD_BASE = 'http://download.tensorflow.org/models/object_detection/'
@@ -25,14 +25,14 @@ PATH_TO_CKPT = MODEL_NAME + '/frozen_inference_graph.pb'
 PATH_TO_LABELS = 'utils/person_label_map.pbtxt'
 NUM_CLASSES = 50
 
-# Download and extract model if not already present
+
 if not os.path.exists(MODEL_FILE):
     opener = urllib.request.URLopener()
     opener.retrieve(DOWNLOAD_BASE + MODEL_FILE, MODEL_FILE)
     with tarfile.open(MODEL_FILE) as tar:
         tar.extractall(path=os.getcwd())
 
-# Load model into TensorFlow graph
+
 detection_graph = tf.compat.v1.Graph()
 with detection_graph.as_default():
     od_graph_def = tf.compat.v1.GraphDef()
@@ -41,24 +41,23 @@ with detection_graph.as_default():
         od_graph_def.ParseFromString(serialized_graph)
         tf.import_graph_def(od_graph_def, name='')
 
-# Load label map
+
 label_map = label_map_util.load_labelmap(PATH_TO_LABELS)
 categories = label_map_util.convert_label_map_to_categories(
     label_map, max_num_classes=NUM_CLASSES, use_display_name=True)
 category_index = label_map_util.create_category_index(categories)
 
-# Function to process the video
+
 def process_video(video_file):
-    # Read the video file
     cap = cv2.VideoCapture(video_file)
     frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
     frame_count = 0
     second_completed = 0
 
-    # Tracking data structures
+    
     person_times = {}
 
-    # Start the TensorFlow session for inference
+    
     with detection_graph.as_default():
         with tf.compat.v1.Session(graph=detection_graph) as sess:
             while True:
@@ -67,11 +66,11 @@ def process_video(video_file):
                     break
 
                 frame_count += 1
-                if frame_count == (2 * frame_rate):  # Process every 2 seconds
+                if frame_count == (2 * frame_rate): 
                     second_completed += 2
                     frame_count = 0
 
-                    # Expand dimensions for the model
+                    
                     image_np_expanded = np.expand_dims(image_np, axis=0)
                     image_tensor = detection_graph.get_tensor_by_name('image_tensor:0')
                     boxes = detection_graph.get_tensor_by_name('detection_boxes:0')
@@ -92,25 +91,25 @@ def process_video(video_file):
                         use_normalized_coordinates=True,
                         line_thickness=8)
 
-                    # Tracking people and waiting time
+                    
                     detected_boxes = np.squeeze(boxes)
                     detected_scores = np.squeeze(scores)
                     detected_classes = np.squeeze(classes).astype(np.int32)
 
                     for i in range(detected_boxes.shape[0]):
-                        if detected_scores[i] > 0.5 and detected_classes[i] == 1:  # Person class
+                        if detected_scores[i] > 0.5 and detected_classes[i] == 1:  
                             person_id = f"person_{i}"
 
-                            # Check if person already seen
+                            
                             if person_id not in person_times:
                                 person_times[person_id] = {'entry_time': second_completed, 'exit_time': None}
 
-                            # Update last seen time
+                            
                             person_times[person_id]['exit_time'] = second_completed
 
     cap.release()
 
-    # Prepare the response
+    
     annotations = {
         'person_count': len(person_times),
         'person_times': {}
@@ -127,7 +126,7 @@ def process_video(video_file):
 
     return annotations
 
-# Route to accept video and return results
+
 @app.route('/process-video', methods=['POST'])
 def process_video_route():
     if 'file' not in request.files:
@@ -138,12 +137,12 @@ def process_video_route():
     if file.filename == '':
         return jsonify({"error": "No selected file"}), 400
 
-    # Save the file to the local filesystem
+    
     video_path = os.path.join('uploads', file.filename)
     os.makedirs(os.path.dirname(video_path), exist_ok=True)
     file.save(video_path)
 
-    # Process the video
+    
     try:
         result = process_video(video_path)
         return jsonify(result), 200
