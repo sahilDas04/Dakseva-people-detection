@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import cv2
 import numpy as np
 import tensorflow as tf
+import json
 import os
 import sys
 import tarfile
@@ -48,7 +49,7 @@ category_index = label_map_util.create_category_index(categories)
 
 # Thresholds for Anomalies
 MAX_WAITING_TIME = 10  # seconds
-ENTRY_ZONE = [(0.1, 0.1), (0.5, 0.5)]  # Example restricted entry zone (normalized coordinates)
+MAX_PERSON_COUNT = 10  # Maximum allowable people in the frame
 MIN_BOX_SIZE = 0.01  # Minimum size of a bounding box
 MAX_BOX_SIZE = 0.5   # Maximum size of a bounding box
 
@@ -60,7 +61,7 @@ def process_video(video_file):
     second_completed = 0
 
     person_times = {}
-    total_person_count = 0  # Counter for unique persons detected
+    person_count = 0
 
     with detection_graph.as_default():
         with tf.compat.v1.Session(graph=detection_graph) as sess:
@@ -86,6 +87,15 @@ def process_video(video_file):
                         [boxes, scores, classes, num_detections],
                         feed_dict={image_tensor: image_np_expanded})
 
+                    vis_util.visualize_boxes_and_labels_on_image_array(
+                        image_np,
+                        np.squeeze(boxes),
+                        np.squeeze(classes).astype(np.int32),
+                        np.squeeze(scores),
+                        category_index,
+                        use_normalized_coordinates=True,
+                        line_thickness=8)
+
                     # Process Detections
                     detected_boxes = np.squeeze(boxes)
                     detected_scores = np.squeeze(scores)
@@ -97,7 +107,7 @@ def process_video(video_file):
                             ymin, xmin, ymax, xmax = box
                             box_height = ymax - ymin
                             box_width = xmax - xmin
-                            person_id = f"person_{len(person_times)}"
+                            person_id = f"person_{i}"
 
                             # Initialize person data if not present
                             if person_id not in person_times:
@@ -110,12 +120,7 @@ def process_video(video_file):
                             # Update exit time
                             person_times[person_id]['exit_time'] = second_completed
 
-                            # Anomaly: Entry from Restricted Area
-                            if xmin < ENTRY_ZONE[0][0] or xmax > ENTRY_ZONE[1][0]:
-                                person_times[person_id]['anomalies'].append(
-                                    "Entered from restricted area."
-                                )
-
+                            
                             # Anomaly: Abnormal Box Size
                             if box_height * box_width < MIN_BOX_SIZE or box_height * box_width > MAX_BOX_SIZE:
                                 person_times[person_id]['anomalies'].append(
@@ -132,16 +137,16 @@ def process_video(video_file):
                 person_times[person_id]['anomalies'].append(
                     f"Waiting too long: {waiting_time} seconds."
                 )
-
-    # Sort person_times by numeric ID
+    
     sorted_person_times = OrderedDict(
         sorted(person_times.items(), key=lambda x: int(x[0].split('_')[1]))
     )
 
     return {
-        'total_person_count': len(sorted_person_times),
+        'person_count': len(sorted_person_times),
         'person_data': sorted_person_times
     }
+
 
 
 @app.route('/process-video', methods=['POST'])
